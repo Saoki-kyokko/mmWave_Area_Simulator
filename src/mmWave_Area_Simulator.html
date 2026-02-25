@@ -61,6 +61,18 @@
       letter-spacing: 0.2px;
     }
 
+    .version-tag {
+      display: inline-block;
+      margin: -6px 0 12px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(56, 189, 248, 0.55);
+      color: #93c5fd;
+      background: rgba(30, 58, 138, 0.22);
+      font-size: 12px;
+      font-family: Consolas, "Courier New", monospace;
+    }
+
     h2 {
       margin: 0 0 10px;
       font-size: 15px;
@@ -263,6 +275,7 @@
   <div class="wrap">
     <section class="card">
       <h1>mmWave 検知エリア設定</h1>
+      <div id="appVersion" class="version-tag">version -</div>
       <div class="grid">
         <div class="row">
           <label for="azimuth">Azimuth FoV [deg]</label>
@@ -287,8 +300,8 @@
         <div class="row">
           <label for="sideMode">横図断面モード</label>
           <select id="sideMode">
-            <option value="xz" selected>センサ正面 X-Z</option>
-            <option value="yz">Y-Z固定 (x=0)</option>
+            <option value="xz">センサ正面 X-Z</option>
+            <option value="yz" selected>Y-Z固定 (x=0)</option>
           </select>
         </div>
         <div class="row">
@@ -372,7 +385,7 @@
           <canvas id="mapTop" width="760" height="720"></canvas>
         </div>
         <div class="view">
-          <h3 id="sideTitle">横から見た図 (センサ正面 X-Z 断面)</h3>
+          <h3 id="sideTitle">横から見た図 (Y-Z 断面)</h3>
           <canvas id="mapSide" width="760" height="720"></canvas>
         </div>
       </div>
@@ -393,6 +406,7 @@
   </div>
 
   <script>
+    const APP_VERSION = "v1.0.0";
     const C = 299792458;
     let X_MIN = -5;
     let X_MAX = 5;
@@ -426,10 +440,15 @@
 
     const inputs = Object.fromEntries(inputIds.map((id) => [id, document.getElementById(id)]));
     const autoHalfLambdaBtn = document.getElementById("autoHalfLambda");
+    const versionEl = document.getElementById("appVersion");
     const topCanvas = document.getElementById("mapTop");
     const topCtx = topCanvas.getContext("2d");
     const sideCanvas = document.getElementById("mapSide");
     const sideCtx = sideCanvas.getContext("2d");
+
+    if (versionEl) {
+      versionEl.textContent = `version ${APP_VERSION}`;
+    }
 
     function clamp(value, min, max, fallback) {
       if (!Number.isFinite(value)) return fallback;
@@ -458,7 +477,7 @@
         height: clamp(parseFloat(inputs.height.value), 0.1, 12, 2),
         yaw: clamp(parseFloat(inputs.yaw.value), -180, 180, 0),
         pitch: clamp(parseFloat(inputs.pitch.value), -45, 90, 70),
-        sideMode: inputs.sideMode.value === "yz" ? "yz" : "xz",
+        sideMode: inputs.sideMode.value === "xz" ? "xz" : "yz",
         xNeg: Math.round(clamp(parseFloat(inputs.xNeg.value), 0, 20, 5)),
         xPos: Math.round(clamp(parseFloat(inputs.xPos.value), 0, 20, 5)),
         yNeg: Math.round(clamp(parseFloat(inputs.yNeg.value), 0, 20, 5)),
