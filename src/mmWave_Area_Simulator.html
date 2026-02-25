@@ -96,6 +96,16 @@
       text-align: right;
     }
 
+    select {
+      width: var(--input-w);
+      background: #0f172a;
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 6px 8px;
+      font-size: 13px;
+    }
+
     .input-actions {
       display: grid;
       grid-template-columns: var(--input-w) var(--btn-w);
@@ -106,6 +116,18 @@
 
     .input-actions input {
       width: var(--input-w);
+    }
+
+    .range-inputs {
+      display: grid;
+      grid-template-columns: var(--input-w) var(--btn-w);
+      gap: 6px;
+      align-items: center;
+      justify-content: end;
+    }
+
+    .range-inputs input {
+      width: 100%;
     }
 
     .btn-mini {
@@ -263,6 +285,34 @@
           <input id="pitch" type="number" min="-45" max="90" step="1" value="70">
         </div>
         <div class="row">
+          <label for="sideMode">横図断面モード</label>
+          <select id="sideMode">
+            <option value="xz" selected>センサ正面 X-Z</option>
+            <option value="yz">Y-Z固定 (x=0)</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="xNeg">X範囲 [m] (- / +)</label>
+          <div class="range-inputs">
+            <input id="xNeg" type="number" min="0" max="20" step="1" value="5">
+            <input id="xPos" type="number" min="0" max="20" step="1" value="5">
+          </div>
+        </div>
+        <div class="row">
+          <label for="yNeg">Y範囲 [m] (- / +)</label>
+          <div class="range-inputs">
+            <input id="yNeg" type="number" min="0" max="20" step="1" value="5">
+            <input id="yPos" type="number" min="0" max="20" step="1" value="5">
+          </div>
+        </div>
+        <div class="row">
+          <label for="zNeg">Z範囲 [m] (- / +)</label>
+          <div class="range-inputs">
+            <input id="zNeg" type="number" min="0" max="20" step="1" value="0">
+            <input id="zPos" type="number" min="0" max="20" step="1" value="8">
+          </div>
+        </div>
+        <div class="row">
           <label for="bandwidth">バンド幅 [MHz]</label>
           <input id="bandwidth" type="number" min="1" step="1" value="5000">
         </div>
@@ -322,13 +372,13 @@
           <canvas id="mapTop" width="760" height="720"></canvas>
         </div>
         <div class="view">
-          <h3>横から見た図 (Y-Z 断面)</h3>
+          <h3 id="sideTitle">横から見た図 (センサ正面 X-Z 断面)</h3>
           <canvas id="mapSide" width="760" height="720"></canvas>
         </div>
       </div>
       <div class="note">
-        上面図は左右 ±5m、奥行 ±5m。<br>
-        側面図は x=0 の Y-Z 断面（奥行 ±5m）、高さは 0m から自動上限。<br>
+        上面図・側面図の表示範囲は X/Y/Z の設定値に連動。<br>
+        側面図は「横図断面モード」で切替（デフォルト: センサ正面 X-Z）。<br>
         判定は Azimuth/Elevation FoV、取り付け角度(左右/上下)、取り付け高さ、FMCW理論最大距離に基づきます。
       </div>
       <div class="equations">計算式(理論):
@@ -344,13 +394,13 @@
 
   <script>
     const C = 299792458;
-    const X_MIN = -5;
-    const X_MAX = 5;
-    const Y_MIN = -5;
-    const Y_MAX = 5;
-    const S_MIN = -5;
-    const S_MAX = 5;
-    const Z_MIN = 0;
+    let X_MIN = -5;
+    let X_MAX = 5;
+    let Y_MIN = -5;
+    let Y_MAX = 5;
+    let Z_MIN = 0;
+    let Z_MAX = 8;
+    const SIDE_PROJ_X_STEP = 0.2;
 
     const inputIds = [
       "azimuth",
@@ -358,6 +408,13 @@
       "height",
       "yaw",
       "pitch",
+      "sideMode",
+      "xNeg",
+      "xPos",
+      "yNeg",
+      "yPos",
+      "zNeg",
+      "zPos",
       "bandwidth",
       "chirpTime",
       "adcFs",
@@ -401,6 +458,13 @@
         height: clamp(parseFloat(inputs.height.value), 0.1, 12, 2),
         yaw: clamp(parseFloat(inputs.yaw.value), -180, 180, 0),
         pitch: clamp(parseFloat(inputs.pitch.value), -45, 90, 70),
+        sideMode: inputs.sideMode.value === "yz" ? "yz" : "xz",
+        xNeg: Math.round(clamp(parseFloat(inputs.xNeg.value), 0, 20, 5)),
+        xPos: Math.round(clamp(parseFloat(inputs.xPos.value), 0, 20, 5)),
+        yNeg: Math.round(clamp(parseFloat(inputs.yNeg.value), 0, 20, 5)),
+        yPos: Math.round(clamp(parseFloat(inputs.yPos.value), 0, 20, 5)),
+        zNeg: Math.round(clamp(parseFloat(inputs.zNeg.value), 0, 20, 0)),
+        zPos: Math.round(clamp(parseFloat(inputs.zPos.value), 0, 20, 8)),
         bandwidthMHz: clamp(parseFloat(inputs.bandwidth.value), 1, 10000, 5000),
         chirpTimeUs: clamp(parseFloat(inputs.chirpTime.value), 0.1, 1000, 6.4),
         adcFsMsps: clamp(parseFloat(inputs.adcFs.value), 0.1, 100, 53.3),
@@ -450,10 +514,25 @@
       const angleResRad = (0.886 * lambda) / effectiveAperture;
       const angleResDeg = angleResRad * 180 / Math.PI;
       const yawRad = degToRad(p.yaw);
-      const cy = Math.cos(yawRad);
-      const sy = Math.sin(yawRad);
-      const cp = Math.cos(pitchRad);
-      const sp = Math.sin(pitchRad);
+      let right = { x: 1, y: 0, z: 0 };
+      let forward = { x: 0, y: 1, z: 0 };
+      let up = { x: 0, y: 0, z: 1 };
+
+      // pitch(下向き正) をローカル right 軸で適用し、その後 yaw(右向き正) を
+      // pitch 後のローカル up 軸で適用する。
+      forward = rotateAroundAxis(forward, right, -pitchRad);
+      up = rotateAroundAxis(up, right, -pitchRad);
+      forward = rotateAroundAxis(forward, up, -yawRad);
+      right = rotateAroundAxis(right, up, -yawRad);
+
+      right = normalizeVec(right);
+      forward = normalizeVec(forward);
+      up = normalizeVec(cross(right, forward));
+      forward = normalizeVec(cross(up, right));
+
+      const forwardGroundMag = Math.hypot(forward.x, forward.y);
+      const forwardGroundX = forwardGroundMag > 1e-9 ? (forward.x / forwardGroundMag) : 0;
+      const forwardGroundY = forwardGroundMag > 1e-9 ? (forward.y / forwardGroundMag) : 1;
 
       return {
         rangeRes,
@@ -468,14 +547,44 @@
         pitchRad,
         yawRad,
         azHalf: degToRad(p.azimuth / 2),
-        right: { x: cy, y: -sy, z: 0 },
-        forward: { x: sy * cp, y: cy * cp, z: -sp },
-        up: { x: sy * sp, y: cy * sp, z: cp }
+        right,
+        forward,
+        up,
+        forwardGroundX,
+        forwardGroundY,
+        forwardGroundMag
       };
     }
 
     function dot(a, b) {
       return a.x * b.x + a.y * b.y + a.z * b.z;
+    }
+
+    function cross(a, b) {
+      return {
+        x: a.y * b.z - a.z * b.y,
+        y: a.z * b.x - a.x * b.z,
+        z: a.x * b.y - a.y * b.x
+      };
+    }
+
+    function normalizeVec(v) {
+      const n = Math.hypot(v.x, v.y, v.z);
+      if (n <= 1e-12) return { x: 0, y: 0, z: 0 };
+      return { x: v.x / n, y: v.y / n, z: v.z / n };
+    }
+
+    function rotateAroundAxis(v, axis, ang) {
+      const a = normalizeVec(axis);
+      const c = Math.cos(ang);
+      const s = Math.sin(ang);
+      const av = dot(a, v);
+      const axv = cross(a, v);
+      return {
+        x: v.x * c + axv.x * s + a.x * av * (1 - c),
+        y: v.y * c + axv.y * s + a.y * av * (1 - c),
+        z: v.z * c + axv.z * s + a.z * av * (1 - c)
+      };
     }
 
     function localDirToWorld(local, m) {
@@ -511,8 +620,17 @@
       return isPointDetectableWorld(x, y, 0, p, m);
     }
 
-    function isDetectableSideCell(y, z, m, p) {
-      return isPointDetectableWorld(0, y, z, p, m);
+    function isDetectableSideCell(s, z, m, p) {
+      if (p.sideMode === "yz") {
+        for (let x = X_MIN; x <= X_MAX; x += SIDE_PROJ_X_STEP) {
+          if (isPointDetectableWorld(x, s, z, p, m)) return true;
+        }
+        return false;
+      }
+      for (let y = Y_MIN; y <= Y_MAX; y += SIDE_PROJ_X_STEP) {
+        if (isPointDetectableWorld(s, y, z, p, m)) return true;
+      }
+      return false;
     }
 
     function isDetectableTopProjectedCell(x, y, p, m, zMax) {
@@ -532,7 +650,7 @@
 
     function sideWorldToCanvas(s, z, layout, zMax) {
       return {
-        x: layout.left + (s - S_MIN) * layout.cell,
+        x: layout.left + (s - layout.sMin) * layout.cell,
         y: layout.top + (zMax - z) * layout.cell
       };
     }
@@ -553,7 +671,7 @@
         top: pad.top + (availH - gridH) / 2,
         cell
       };
-      const zMax = Math.max(5, Math.ceil(p.height + 2));
+      const zMax = Math.max(Z_MIN + 1, Math.max(Z_MAX, Math.ceil(p.height + 1)));
 
       topCtx.clearRect(0, 0, cw, ch);
       topCtx.fillStyle = "#0b1220";
@@ -713,8 +831,8 @@
       }
 
       const headingLen = Math.min(m.rMax, Math.hypot(X_MAX, Y_MAX) + 2);
-      const headingX = headingLen * Math.sin(m.yawRad);
-      const headingY = headingLen * Math.cos(m.yawRad);
+      const headingX = headingLen * m.forwardGroundX;
+      const headingY = headingLen * m.forwardGroundY;
       const hpt = topWorldToCanvas(headingX, headingY, layout);
       topCtx.strokeStyle = "rgba(245, 158, 11, 0.98)";
       topCtx.lineWidth = 1.4;
@@ -774,22 +892,22 @@
       topCtx.restore();
     }
 
-    function buildSideBeamBand(p, m, yMin, yMax, zMax, ySteps, zSteps) {
+    function buildSideBeamBand(p, m, sMin, sMax, zMax, sSteps, zSteps) {
       const upper = [];
       const lower = [];
-      for (let yi = 0; yi <= ySteps; yi++) {
-        const y = yMin + (yMax - yMin) * (yi / ySteps);
+      for (let si = 0; si <= sSteps; si++) {
+        const s = sMin + (sMax - sMin) * (si / sSteps);
         let zLow = null;
         let zHigh = null;
         for (let zi = 0; zi <= zSteps; zi++) {
           const z = Z_MIN + (zMax - Z_MIN) * (zi / zSteps);
-          if (!isPointDetectableWorld(0, y, z, p, m)) continue;
+          if (!isDetectableSideCell(s, z, m, p)) continue;
           if (zLow === null) zLow = z;
           zHigh = z;
         }
         if (zLow !== null && zHigh !== null) {
-          upper.push({ y, z: zHigh });
-          lower.push({ y, z: zLow });
+          upper.push({ s, z: zHigh });
+          lower.push({ s, z: zLow });
         }
       }
       return { upper, lower };
@@ -798,18 +916,27 @@
     function drawSideCurve(points, layout, zMax, closePath) {
       if (!points || points.length < 2) return;
       sideCtx.beginPath();
-      const p0 = sideWorldToCanvas(points[0].y, points[0].z, layout, zMax);
+      const p0 = sideWorldToCanvas(points[0].s, points[0].z, layout, zMax);
       sideCtx.moveTo(p0.x, p0.y);
       for (let i = 1; i < points.length; i++) {
-        const pt = sideWorldToCanvas(points[i].y, points[i].z, layout, zMax);
+        const pt = sideWorldToCanvas(points[i].s, points[i].z, layout, zMax);
         sideCtx.lineTo(pt.x, pt.y);
       }
       if (closePath) sideCtx.closePath();
     }
 
     function drawSideView(p, m) {
-      const zMax = Math.max(5, Math.ceil(p.height + 2));
-      const cols = S_MAX - S_MIN;
+      const sideMode = p.sideMode;
+      const sideTitle = document.getElementById("sideTitle");
+      if (sideTitle) {
+        sideTitle.textContent = sideMode === "xz"
+          ? "横から見た図 (センサ正面 X-Z 断面)"
+          : "横から見た図 (Y-Z 断面)";
+      }
+      const zMax = Math.max(Z_MIN + 1, Math.max(Z_MAX, Math.ceil(p.height + 1)));
+      const sMin = sideMode === "xz" ? -p.xNeg : -p.yNeg;
+      const sMax = sideMode === "xz" ? p.xPos : p.yPos;
+      const cols = sMax - sMin;
       const rows = zMax - Z_MIN;
       const pad = { left: 58, top: 22, right: 18, bottom: 48 };
       const cw = sideCanvas.width;
@@ -822,20 +949,22 @@
       const layout = {
         left: pad.left + (availW - gridW) / 2,
         top: pad.top + (availH - gridH) / 2,
-        cell
+        cell,
+        sMin,
+        sMax
       };
 
       sideCtx.clearRect(0, 0, cw, ch);
       sideCtx.fillStyle = "#0b1220";
       sideCtx.fillRect(0, 0, cw, ch);
 
-      drawSideBeam(p, m, layout, zMax);
+      drawSideBeam(p, m, layout, zMax, sideMode);
 
       for (let zi = 0; zi < rows; zi++) {
         const zTop = zMax - zi;
         const zCenter = zTop - 0.5;
         for (let si = 0; si < cols; si++) {
-          const sCenter = S_MIN + si + 0.5;
+          const sCenter = sMin + si + 0.5;
           const px = layout.left + si * cell;
           const py = layout.top + zi * cell;
           const detectable = isDetectableSideCell(sCenter, zCenter, m, p);
@@ -844,7 +973,7 @@
         }
       }
 
-      drawSideGridLabels(cols, rows, layout, cw, ch, zMax, p.height);
+      drawSideGridLabels(cols, rows, layout, cw, ch, zMax, p.height, sideMode, sMin);
 
       const sensor = sideWorldToCanvas(0, p.height, layout, zMax);
       sideCtx.fillStyle = "#38bdf8";
@@ -856,8 +985,10 @@
       sideCtx.stroke();
     }
 
-    function drawSideBeam(p, m, layout, zMax) {
-      const band = buildSideBeamBand(p, m, S_MIN, S_MAX, zMax, 240, 180);
+    function drawSideBeam(p, m, layout, zMax, sideMode) {
+      const sSteps = sideMode === "yz" ? 160 : 240;
+      const zSteps = sideMode === "yz" ? 120 : 180;
+      const band = buildSideBeamBand(p, m, layout.sMin, layout.sMax, zMax, sSteps, zSteps);
       const sensor = sideWorldToCanvas(0, p.height, layout, zMax);
 
       if (band.upper.length > 2) {
@@ -878,16 +1009,18 @@
       sideCtx.strokeStyle = "rgba(245,158,11,0.95)";
       sideCtx.lineWidth = 1;
       const rayMax = Math.min(m.rMax, 20);
-      const centerY = rayMax * Math.cos(m.pitchRad);
-      const centerZ = p.height - rayMax * Math.sin(m.pitchRad);
-      const centerPt = sideWorldToCanvas(centerY, centerZ, layout, zMax);
+      const centerS = sideMode === "xz"
+        ? rayMax * m.forward.x
+        : rayMax * m.forward.y;
+      const centerZ = p.height + rayMax * m.forward.z;
+      const centerPt = sideWorldToCanvas(centerS, centerZ, layout, zMax);
       sideCtx.beginPath();
       sideCtx.moveTo(sensor.x, sensor.y);
       sideCtx.lineTo(centerPt.x, centerPt.y);
       sideCtx.stroke();
     }
 
-    function drawSideGridLabels(cols, rows, layout, cw, ch, zMax, sensorHeight) {
+    function drawSideGridLabels(cols, rows, layout, cw, ch, zMax, sensorHeight, sideMode, sMin) {
       sideCtx.strokeStyle = "rgba(100,116,139,0.85)";
       sideCtx.lineWidth = 1;
 
@@ -926,7 +1059,7 @@
       sideCtx.fillStyle = "#cbd5e1";
       sideCtx.textAlign = "center";
       for (let si = 0; si <= cols; si++) {
-        const sVal = S_MIN + si;
+        const sVal = sMin + si;
         const x = layout.left + si * layout.cell;
         sideCtx.fillText(String(sVal), x, layout.top + rows * layout.cell + 16);
       }
@@ -941,7 +1074,8 @@
       sideCtx.fillStyle = "#cbd5e1";
       sideCtx.textAlign = "center";
       sideCtx.font = "600 19px Segoe UI, Yu Gothic UI, sans-serif";
-      sideCtx.fillText("奥行 y [m]", layout.left + (cols * layout.cell) / 2, ch - 12);
+      const sideAxisLabel = sideMode === "xz" ? "左右 x [m]" : "奥行 y [m]";
+      sideCtx.fillText(sideAxisLabel, layout.left + (cols * layout.cell) / 2, ch - 12);
       sideCtx.save();
       sideCtx.translate(20, layout.top + (rows * layout.cell) / 2);
       sideCtx.rotate(-Math.PI / 2);
@@ -961,6 +1095,16 @@
 
     function render() {
       const params = getParams();
+      X_MIN = -params.xNeg;
+      X_MAX = params.xPos;
+      Y_MIN = -params.yNeg;
+      Y_MAX = params.yPos;
+      Z_MIN = -params.zNeg;
+      Z_MAX = params.zPos;
+
+      if (X_MAX - X_MIN < 1) X_MAX = X_MIN + 1;
+      if (Y_MAX - Y_MIN < 1) Y_MAX = Y_MIN + 1;
+      if (Z_MAX - Z_MIN < 1) Z_MAX = Z_MIN + 1;
       const metrics = calculate(params);
       updateMetrics(metrics);
       drawTopView(params, metrics);
