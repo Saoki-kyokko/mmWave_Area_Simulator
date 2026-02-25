@@ -301,7 +301,7 @@
           <label for="sideMode">横図断面モード</label>
           <select id="sideMode">
             <option value="xz">センサ正面 X-Z</option>
-            <option value="yz" selected>Y-Z固定 (x=0)</option>
+            <option value="yz" selected>センサ側面 Y-Z</option>
           </select>
         </div>
         <div class="row">
@@ -391,7 +391,7 @@
       </div>
       <div class="note">
         上面図・側面図の表示範囲は X/Y/Z の設定値に連動。<br>
-        側面図は「横図断面モード」で切替（デフォルト: センサ正面 X-Z）。<br>
+        側面図は「横図断面モード」で切替（デフォルト: センサ正面 Y-Z）。<br>
         判定は Azimuth/Elevation FoV、取り付け角度(左右/上下)、取り付け高さ、FMCW理論最大距離に基づきます。
       </div>
       <div class="equations">計算式(理論):
@@ -950,7 +950,7 @@
       if (sideTitle) {
         sideTitle.textContent = sideMode === "xz"
           ? "横から見た図 (センサ正面 X-Z 断面)"
-          : "横から見た図 (Y-Z 断面)";
+          : "横から見た図 (センサ側面 Y-Z 断面)";
       }
       const zMax = Math.max(Z_MIN + 1, Math.max(Z_MAX, Math.ceil(p.height + 1)));
       const sMin = sideMode === "xz" ? -p.xNeg : -p.yNeg;
